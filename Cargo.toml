@@ -26,7 +26,6 @@ edition = "2018"
 
 [dependencies]
 optee-utee-sys = { version = "0.6.0", path = "optee-utee-sys" }
-optee-utee-macros = { version = "0.6.0", path = "macros" }
 bitflags = "1.0.4"
 uuid = { version = "0.8", default-features = false }
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
@@ -43,10 +42,10 @@ optee-utee-sys = { version = "0.6.0", path = "optee-utee-sys", features = ["no_l
 optee-utee-mock = { version = "0.6.0", path = "optee-utee-mock" }
 
 [features]
-default = []
-std = ["optee-utee-sys/std", "optee-utee-macros/std"]
+default = ["std"]
+std = ["optee-utee-sys/std"]
 no_panic_handler = []
 
 [workspace]
 resolver = "2"
-members = ['systest']
+members = ['ta_manager']

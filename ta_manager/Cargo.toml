@@ -1,0 +1,9 @@
+[package]
+name = "ta_manager"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+optee-utee = { path = "../../optee-utee" }
+bincode = "2.0.1"
+anyhow = "1.0.100"

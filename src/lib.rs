@@ -16,7 +16,6 @@
 // under the License.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), feature(error_in_core))]
 
 // Requires `alloc`.
 #[macro_use]
@@ -29,20 +28,6 @@ use libc_alloc::LibcAlloc;
 #[global_allocator]
 static ALLOCATOR: LibcAlloc = LibcAlloc;
 
-#[cfg(not(feature = "std"))]
-use core::panic::PanicInfo;
-#[cfg(not(feature = "std"))]
-use optee_utee_sys as raw;
-
-#[cfg(all(not(feature = "std"), not(feature = "no_panic_handler")))]
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    unsafe {
-        raw::TEE_Panic(0);
-    }
-    loop {}
-}
-
 pub use self::arithmetical::*;
 pub use self::crypto_op::*;
 pub use self::error::{Error, ErrorKind, Result};
@@ -54,9 +39,6 @@ pub use self::ta_session::{TaSession, TaSessionBuilder};
 pub use self::tee_parameter::{ParamIndex, TeeParams};
 pub use self::time::*;
 pub use self::uuid::*;
-pub use optee_utee_macros::{
-    ta_close_session, ta_create, ta_destroy, ta_invoke_command, ta_open_session,
-};
 
 pub mod trace;
 #[macro_use]
