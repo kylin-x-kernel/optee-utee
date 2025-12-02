@@ -7,19 +7,71 @@ pub enum TARequest {
 
 #[derive(Encode, Decode)]
 pub enum CARequest {
-    OpenSession { params: Parameters },
-    CloseSession,
+    OpenSession {
+        params: Parameters,
+    },
+    CloseSession {
+        session_id: u32,
+    },
     Destroy,
-    InvokeCommand { cmd_id: u32, params: Parameters },
+    InvokeCommand {
+        session_id: u32,
+        cmd_id: u32,
+        params: Parameters,
+    },
+}
+
+#[derive(Encode, Decode)]
+pub enum CAResponse {
+    OpenSession {
+        status: u32,
+        session_id: u32,
+    },
+    CloseSession {
+        status: u32,
+        session_id: u32,
+    },
+    Destroy {
+        status: u32,
+    },
+    InvokeCommand {
+        status: u32,
+        session_id: u32,
+        cmd_id: u32,
+        params: Parameters,
+    },
 }
 
 #[derive(Encode, Decode)]
 pub struct Parameters(pub Parameter, pub Parameter, pub Parameter, pub Parameter);
 
+impl Parameters {
+    pub fn default() -> Self {
+        Parameters(
+            Parameter::default(),
+            Parameter::default(),
+            Parameter::default(),
+            Parameter::default(),
+        )
+    }
+}
+
 #[derive(Encode, Decode)]
 pub struct Parameter {
     pub raw: TEEParam,
     pub param_type: ParamType,
+}
+
+impl Parameter {
+    pub fn default() -> Self {
+        Parameter {
+            raw: TEEParam {
+                data: Vec::new(),
+                value: Value { a: 0, b: 0 },
+            },
+            param_type: ParamType::None,
+        }
+    }
 }
 
 #[derive(Encode, Decode)]
