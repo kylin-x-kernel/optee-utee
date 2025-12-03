@@ -93,49 +93,11 @@ impl<T: TrustedApplication> TAManager<T> {
 
             let (req, _): (CARequest, _) = bincode::decode_from_slice(&buf, config::standard())?;
             match req {
-                CARequest::OpenSession { mut params } => {
-                    let session_id = self.next_session_id();
-                    println!("Opening session with ID: {}", session_id);
-                    let resp = match ta.open_session(&mut params) {
-                        Ok(ctx) => {
-                            self.sessions.insert(session_id, ctx);
-                            println!("Session {} opened successfully", session_id);
-                            CAResponse::OpenSession {
-                                status: 0,
-                                session_id,
-                            }
-                        }
-                        Err(e) => {
-                            println!("Failed to open session {}: {:?}", session_id, e);
-                            CAResponse::OpenSession {
-                                status: e.raw_code(),
-                                session_id: 0,
-                            }
-                        }
-                    };
-                    let resp_data = bincode::encode_to_vec(resp, config::standard())?;
-                    stream.write_all(&resp_data)?;
+                CARequest::OpenSession { params } => {
+                    self.handle_open_session(stream, ta, params)?
                 }
                 CARequest::CloseSession { session_id } => {
-                    let resp = match ta.close_session(self.sessions.get_mut(&session_id).unwrap()) {
-                        Ok(_) => {
-                            self.sessions.remove(&session_id);
-                            println!("Session {} closed successfully", session_id);
-                            CAResponse::CloseSession {
-                                status: 0,
-                                session_id,
-                            }
-                        }
-                        Err(e) => {
-                            println!("Failed to close session {}: {:?}", session_id, e);
-                            CAResponse::CloseSession {
-                                status: e.raw_code(),
-                                session_id,
-                            }
-                        }
-                    };
-                    let resp_data = bincode::encode_to_vec(resp, config::standard())?;
-                    stream.write_all(&resp_data)?;
+                    self.handle_close_session(stream, ta, session_id)?
                 }
                 CARequest::Destroy => {
                     ta.destroy()?;
@@ -144,44 +106,114 @@ impl<T: TrustedApplication> TAManager<T> {
                 CARequest::InvokeCommand {
                     session_id,
                     cmd_id,
-                    mut params,
-                } => {
-                    let resp = match ta.invoke_command(
-                        cmd_id,
-                        &mut params,
-                        self.sessions.get_mut(&session_id).unwrap(),
-                    ) {
-                        Ok(_) => {
-                            println!(
-                                "Command {} invoked successfully on session {}",
-                                cmd_id, session_id
-                            );
-                            CAResponse::InvokeCommand {
-                                status: 0,
-                                session_id,
-                                cmd_id,
-                                params,
-                            }
-                        }
-                        Err(e) => {
-                            println!(
-                                "Failed to invoke command {} on session {}: {:?}",
-                                cmd_id, session_id, e
-                            );
-                            CAResponse::InvokeCommand {
-                                status: e.raw_code(),
-                                session_id,
-                                cmd_id,
-                                params,
-                            }
-                        }
-                    };
-                    let resp_data = bincode::encode_to_vec(resp, config::standard())?;
-                    stream.write_all(&resp_data)?;
-                }
+                    params,
+                } => self.handle_invoke_command(stream, ta, session_id, cmd_id, params)?,
             }
         }
 
+        Ok(())
+    }
+
+    fn handle_open_session(
+        &mut self,
+        mut stream: UnixStream,
+        ta: &T,
+        mut params: Parameters,
+    ) -> anyhow::Result<()> {
+        let session_id = self.next_session_id();
+        println!("Opening session with ID: {}", session_id);
+        let resp = match ta.open_session(&mut params) {
+            Ok(ctx) => {
+                self.sessions.insert(session_id, ctx);
+                println!("Session {} opened successfully", session_id);
+                CAResponse::OpenSession {
+                    status: 0,
+                    session_id,
+                }
+            }
+            Err(e) => {
+                println!("Failed to open session {}: {:?}", session_id, e);
+                CAResponse::OpenSession {
+                    status: e.raw_code(),
+                    session_id: 0,
+                }
+            }
+        };
+        let resp_data = bincode::encode_to_vec(resp, config::standard())?;
+        stream.write_all(&resp_data)?;
+
+        Ok(())
+    }
+
+    fn handle_close_session(
+        &mut self,
+        mut stream: UnixStream,
+        ta: &T,
+        session_id: u32,
+    ) -> anyhow::Result<()> {
+        let resp = match ta.close_session(self.sessions.get_mut(&session_id).unwrap()) {
+            Ok(_) => {
+                self.sessions.remove(&session_id);
+                println!("Session {} closed successfully", session_id);
+                CAResponse::CloseSession {
+                    status: 0,
+                    session_id,
+                }
+            }
+            Err(e) => {
+                println!("Failed to close session {}: {:?}", session_id, e);
+                CAResponse::CloseSession {
+                    status: e.raw_code(),
+                    session_id,
+                }
+            }
+        };
+        let resp_data = bincode::encode_to_vec(resp, config::standard())?;
+        stream.write_all(&resp_data)?;
+
+        Ok(())
+    }
+
+    fn handle_invoke_command(
+        &mut self,
+        mut stream: UnixStream,
+        ta: &T,
+        session_id: u32,
+        cmd_id: u32,
+        mut params: Parameters,
+    ) -> anyhow::Result<()> {
+        let resp = match ta.invoke_command(
+            cmd_id,
+            &mut params,
+            self.sessions.get_mut(&session_id).unwrap(),
+        ) {
+            Ok(_) => {
+                println!(
+                    "Command {} invoked successfully on session {}",
+                    cmd_id, session_id
+                );
+                CAResponse::InvokeCommand {
+                    status: 0,
+                    session_id,
+                    cmd_id,
+                    params,
+                }
+            }
+            Err(e) => {
+                println!(
+                    "Failed to invoke command {} on session {}: {:?}",
+                    cmd_id, session_id, e
+                );
+                CAResponse::InvokeCommand {
+                    status: e.raw_code(),
+                    session_id,
+                    cmd_id,
+                    params,
+                }
+            }
+        };
+        let resp_data = bincode::encode_to_vec(resp, config::standard())?;
+        stream.write_all(&resp_data)?;
         Ok(())
     }
 
