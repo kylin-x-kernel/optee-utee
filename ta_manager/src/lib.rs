@@ -3,11 +3,16 @@ use std::{
     io::{Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     path::PathBuf,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    thread,
 };
 
 use bincode::config;
-use optee_utee::Result;
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use optee_utee::{ErrorKind, Result};
 
 use crate::protocol::{CARequest, CAResponse, Parameters, TARequest};
 
@@ -16,9 +21,9 @@ const SERVER_SOCKET_PATH: &str = "/tmp/server.sock";
 pub mod protocol;
 
 /// Trait representing a Trusted Application (TA).
-pub trait TrustedApplication {
+pub trait TrustedApplication: Send + Sync + 'static {
     /// User-defined session context type.
-    type SessionContext;
+    type SessionContext: Send;
 
     /// Create a new TA instance.
     fn create(&self) -> Result<()>;
@@ -42,24 +47,26 @@ pub trait TrustedApplication {
 }
 
 pub struct TAManager<T: TrustedApplication> {
+    ta: Arc<T>,
     uuid: String,
-    sessions: HashMap<u32, T::SessionContext>,
+    sessions: HashMap<u32, Sender<SessionMessage>>,
     session_id: AtomicU32,
 }
 
 impl<T: TrustedApplication> TAManager<T> {
-    pub fn new(uuid: &str) -> Self {
+    pub fn new(ta: T, uuid: &str) -> Self {
         Self {
+            ta: Arc::new(ta),
             uuid: uuid.to_string(),
             sessions: HashMap::new(),
             session_id: AtomicU32::new(1),
         }
     }
 
-    pub fn run_ta(&mut self, ta: &T) -> anyhow::Result<()> {
-        ta.create()?;
+    pub fn run_ta(&mut self) -> anyhow::Result<()> {
+        self.ta.create()?;
         let _stream = self.register_ta()?;
-        self.handle_ca_request(ta)?;
+        self.handle_ca_request(self.ta.clone())?;
         Ok(())
     }
 
@@ -78,7 +85,7 @@ impl<T: TrustedApplication> TAManager<T> {
     }
 
     // Handle requests from the Client Application (CA).
-    fn handle_ca_request(&mut self, ta: &T) -> anyhow::Result<()> {
+    fn handle_ca_request(&mut self, ta: Arc<T>) -> anyhow::Result<()> {
         let path = PathBuf::from(format!("/tmp/{}.sock", self.uuid));
         let _ = std::fs::remove_file(path.clone());
 
@@ -94,10 +101,10 @@ impl<T: TrustedApplication> TAManager<T> {
             let (req, _): (CARequest, _) = bincode::decode_from_slice(&buf, config::standard())?;
             match req {
                 CARequest::OpenSession { params } => {
-                    self.handle_open_session(stream, ta, params)?
+                    self.handle_open_session(stream, ta.clone(), params)?
                 }
                 CARequest::CloseSession { session_id } => {
-                    self.handle_close_session(stream, ta, session_id)?
+                    self.handle_close_session(stream, session_id)?
                 }
                 CARequest::Destroy => {
                     ta.destroy()?;
@@ -107,7 +114,7 @@ impl<T: TrustedApplication> TAManager<T> {
                     session_id,
                     cmd_id,
                     params,
-                } => self.handle_invoke_command(stream, ta, session_id, cmd_id, params)?,
+                } => self.handle_invoke_command(stream, session_id, cmd_id, params)?,
             }
         }
 
@@ -117,15 +124,21 @@ impl<T: TrustedApplication> TAManager<T> {
     fn handle_open_session(
         &mut self,
         mut stream: UnixStream,
-        ta: &T,
+        ta: Arc<T>,
         mut params: Parameters,
     ) -> anyhow::Result<()> {
         let session_id = self.next_session_id();
         println!("Opening session with ID: {}", session_id);
+
         let resp = match ta.open_session(&mut params) {
             Ok(ctx) => {
-                self.sessions.insert(session_id, ctx);
                 println!("Session {} opened successfully", session_id);
+                let (tx, rx) = unbounded();
+                self.sessions.insert(session_id, tx);
+                thread::spawn(move || {
+                    session_thread(ta.clone(), ctx, rx);
+                });
+
                 CAResponse::OpenSession {
                     status: 0,
                     session_id,
@@ -139,6 +152,7 @@ impl<T: TrustedApplication> TAManager<T> {
                 }
             }
         };
+
         let resp_data = bincode::encode_to_vec(resp, config::standard())?;
         stream.write_all(&resp_data)?;
 
@@ -148,26 +162,24 @@ impl<T: TrustedApplication> TAManager<T> {
     fn handle_close_session(
         &mut self,
         mut stream: UnixStream,
-        ta: &T,
         session_id: u32,
     ) -> anyhow::Result<()> {
-        let resp = match ta.close_session(self.sessions.get_mut(&session_id).unwrap()) {
-            Ok(_) => {
-                self.sessions.remove(&session_id);
-                println!("Session {} closed successfully", session_id);
-                CAResponse::CloseSession {
-                    status: 0,
-                    session_id,
-                }
+        println!("Closing session with ID: {}", session_id);
+
+        let resp = match self.sessions.get(&session_id) {
+            Some(tx) => {
+                let (resp_tx, resp_rx) = unbounded();
+                tx.send(SessionMessage::Close { resp_tx })?;
+                resp_rx.recv()?
             }
-            Err(e) => {
-                println!("Failed to close session {}: {:?}", session_id, e);
+            None => {
+                println!("Session {} not found", session_id);
                 CAResponse::CloseSession {
-                    status: e.raw_code(),
-                    session_id,
+                    status: ErrorKind::ItemNotFound as u32,
                 }
             }
         };
+
         let resp_data = bincode::encode_to_vec(resp, config::standard())?;
         stream.write_all(&resp_data)?;
 
@@ -177,47 +189,84 @@ impl<T: TrustedApplication> TAManager<T> {
     fn handle_invoke_command(
         &mut self,
         mut stream: UnixStream,
-        ta: &T,
         session_id: u32,
         cmd_id: u32,
-        mut params: Parameters,
+        params: Parameters,
     ) -> anyhow::Result<()> {
-        let resp = match ta.invoke_command(
-            cmd_id,
-            &mut params,
-            self.sessions.get_mut(&session_id).unwrap(),
-        ) {
-            Ok(_) => {
-                println!(
-                    "Command {} invoked successfully on session {}",
-                    cmd_id, session_id
-                );
-                CAResponse::InvokeCommand {
-                    status: 0,
-                    session_id,
+        println!("Invoking command {} on session {}", cmd_id, session_id);
+
+        let resp = match self.sessions.get(&session_id) {
+            Some(tx) => {
+                let (resp_tx, resp_rx) = unbounded();
+                tx.send(SessionMessage::Invoke {
                     cmd_id,
                     params,
-                }
+                    resp_tx,
+                })?;
+                resp_rx.recv()?
             }
-            Err(e) => {
-                println!(
-                    "Failed to invoke command {} on session {}: {:?}",
-                    cmd_id, session_id, e
-                );
+            None => {
+                println!("Session {} not found", session_id);
                 CAResponse::InvokeCommand {
-                    status: e.raw_code(),
-                    session_id,
-                    cmd_id,
-                    params,
+                    status: ErrorKind::ItemNotFound as u32,
                 }
             }
         };
+
         let resp_data = bincode::encode_to_vec(resp, config::standard())?;
         stream.write_all(&resp_data)?;
+
         Ok(())
     }
 
     fn next_session_id(&self) -> u32 {
         self.session_id.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+// Messages sent to session threads.
+enum SessionMessage {
+    Invoke {
+        cmd_id: u32,
+        params: Parameters,
+        resp_tx: Sender<CAResponse>,
+    },
+    Close {
+        resp_tx: Sender<CAResponse>,
+    },
+}
+
+// Thread function to handle a TA session.
+fn session_thread<T: TrustedApplication>(
+    ta: Arc<T>,
+    mut ctx: T::SessionContext,
+    rx: Receiver<SessionMessage>,
+) {
+    for msg in rx.iter() {
+        match msg {
+            SessionMessage::Invoke {
+                cmd_id,
+                mut params,
+                resp_tx,
+            } => {
+                let resp = match ta.invoke_command(cmd_id, &mut params, &mut ctx) {
+                    Ok(_) => CAResponse::InvokeCommand { status: 0 },
+                    Err(e) => CAResponse::InvokeCommand {
+                        status: e.raw_code(),
+                    },
+                };
+                let _ = resp_tx.send(resp);
+            }
+            SessionMessage::Close { resp_tx } => {
+                let resp = match ta.close_session(&mut ctx) {
+                    Ok(_) => CAResponse::CloseSession { status: 0 },
+                    Err(e) => CAResponse::CloseSession {
+                        status: e.raw_code(),
+                    },
+                };
+                let _ = resp_tx.send(resp);
+                break;
+            }
+        }
     }
 }

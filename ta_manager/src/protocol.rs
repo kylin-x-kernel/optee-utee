@@ -23,23 +23,10 @@ pub enum CARequest {
 
 #[derive(Encode, Decode)]
 pub enum CAResponse {
-    OpenSession {
-        status: u32,
-        session_id: u32,
-    },
-    CloseSession {
-        status: u32,
-        session_id: u32,
-    },
-    Destroy {
-        status: u32,
-    },
-    InvokeCommand {
-        status: u32,
-        session_id: u32,
-        cmd_id: u32,
-        params: Parameters,
-    },
+    OpenSession { status: u32, session_id: u32 },
+    CloseSession { status: u32 },
+    Destroy { status: u32 },
+    InvokeCommand { status: u32 },
 }
 
 #[derive(Encode, Decode)]

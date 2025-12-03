@@ -7,3 +7,4 @@ edition = "2024"
 optee-utee = { path = "../../optee-utee" }
 bincode = "2.0.1"
 anyhow = "1.0.100"
+crossbeam-channel = "0.5.15"
