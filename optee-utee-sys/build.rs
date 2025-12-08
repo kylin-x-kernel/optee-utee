@@ -50,5 +50,5 @@ fn link() {
     println!("cargo:rustc-link-search={}", library_path.display());
     println!("cargo:rustc-link-lib=static=utee");
     // println!("cargo:rustc-link-lib=static=utils");
-    // println!("cargo:rustc-link-lib=static=mbedtls");
+    println!("cargo:rustc-link-lib=static=mbedtls");
 }
