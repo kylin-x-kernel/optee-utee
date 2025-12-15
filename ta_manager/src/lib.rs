@@ -95,8 +95,12 @@ impl<T: TrustedApplication> TAManager<T> {
         for stream in listener.incoming() {
             println!("Received connection from CA");
             let mut stream = stream?;
-            let mut buf = Vec::new();
-            stream.read_to_end(&mut buf)?;
+
+            let mut len_buf = [0u8; 4];
+            stream.read_exact(&mut len_buf)?;
+            let len = u32::from_ne_bytes(len_buf) as usize;
+            let mut buf = vec![0u8; len];
+            stream.read_exact(&mut buf)?;
 
             let (req, _): (CARequest, _) = bincode::decode_from_slice(&buf, config::standard())?;
             match req {

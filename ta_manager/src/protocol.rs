@@ -1,11 +1,11 @@
 use bincode::{Decode, Encode};
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub enum TARequest {
     Register { uuid: String },
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub enum CARequest {
     OpenSession {
         params: Parameters,
@@ -21,7 +21,7 @@ pub enum CARequest {
     },
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub enum CAResponse {
     OpenSession { status: u32, session_id: u32 },
     CloseSession { status: u32 },
@@ -29,7 +29,7 @@ pub enum CAResponse {
     InvokeCommand { status: u32 },
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub struct Parameters(pub Parameter, pub Parameter, pub Parameter, pub Parameter);
 
 impl Parameters {
@@ -43,7 +43,7 @@ impl Parameters {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub struct Parameter {
     pub raw: TEEParam,
     pub param_type: ParamType,
@@ -61,19 +61,19 @@ impl Parameter {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub struct TEEParam {
     pub data: Vec<u8>,
     pub value: Value,
 }
 
-#[derive(Encode, Decode, Clone, Copy)]
+#[derive(Encode, Decode, Clone, Copy, Debug)]
 pub struct Value {
     pub a: u32,
     pub b: u32,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub enum ParamType {
     None = 0,
     ValueInput = 1,
