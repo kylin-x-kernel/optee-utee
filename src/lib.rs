@@ -15,19 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
-// Requires `alloc`.
-#[macro_use]
-extern crate alloc;
-
-#[cfg(not(feature = "std"))]
-use libc_alloc::LibcAlloc;
-
-#[cfg(not(feature = "std"))]
-#[global_allocator]
-static ALLOCATOR: LibcAlloc = LibcAlloc;
-
 pub use self::arithmetical::*;
 pub use self::crypto_op::*;
 pub use self::error::{Error, ErrorKind, Result};
