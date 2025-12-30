@@ -6,27 +6,31 @@ pub enum TARequest {
 }
 
 #[derive(Encode, Decode, Debug)]
-pub enum CARequest {
+pub enum TeeRequest {
     OpenSession {
+        uuid: String,
+        connection_method: u32,
         params: Parameters,
     },
     CloseSession {
         session_id: u32,
     },
-    Destroy,
     InvokeCommand {
         session_id: u32,
         cmd_id: u32,
         params: Parameters,
     },
+    RequestCancellation {
+        session_id: u32,
+    },
 }
 
 #[derive(Encode, Decode, Debug)]
-pub enum CAResponse {
-    OpenSession { status: u32, session_id: u32 },
-    CloseSession { status: u32 },
-    Destroy { status: u32 },
-    InvokeCommand { status: u32 },
+pub enum TeeResponse {
+    OpenSession { session_id: u32, result: u32 },
+    CloseSession { result: u32 },
+    InvokeCommand { params: Parameters, result: u32 },
+    RequestCancellation { result: u32 },
 }
 
 #[derive(Encode, Decode, Debug)]

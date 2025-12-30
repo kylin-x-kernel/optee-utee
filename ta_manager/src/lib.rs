@@ -14,7 +14,7 @@ use bincode::config;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use optee_utee::{ErrorKind, Result};
 
-use crate::protocol::{CARequest, CAResponse, Parameters, TARequest};
+use crate::protocol::{Parameters, TARequest, TeeRequest, TeeResponse};
 
 const SERVER_SOCKET_PATH: &str = "/tmp/server.sock";
 
@@ -102,23 +102,22 @@ impl<T: TrustedApplication> TAManager<T> {
             let mut buf = vec![0u8; len];
             stream.read_exact(&mut buf)?;
 
-            let (req, _): (CARequest, _) = bincode::decode_from_slice(&buf, config::standard())?;
+            let (req, _): (TeeRequest, _) = bincode::decode_from_slice(&buf, config::standard())?;
             match req {
-                CARequest::OpenSession { params } => {
-                    self.handle_open_session(stream, ta.clone(), params)?
+                TeeRequest::OpenSession {
+                    uuid: _,
+                    connection_method: _,
+                    params,
+                } => self.handle_open_session(stream, ta.clone(), params)?,
+                TeeRequest::CloseSession { session_id } => {
+                    self.handle_close_session(stream, session_id)? 
                 }
-                CARequest::CloseSession { session_id } => {
-                    self.handle_close_session(stream, session_id)?
-                }
-                CARequest::Destroy => {
-                    ta.destroy()?;
-                    break;
-                }
-                CARequest::InvokeCommand {
+                TeeRequest::InvokeCommand {
                     session_id,
                     cmd_id,
                     params,
                 } => self.handle_invoke_command(stream, session_id, cmd_id, params)?,
+                TeeRequest::RequestCancellation { session_id: _ } => todo!(),
             }
         }
 
@@ -142,17 +141,16 @@ impl<T: TrustedApplication> TAManager<T> {
                 thread::spawn(move || {
                     session_thread(ta.clone(), ctx, rx);
                 });
-
-                CAResponse::OpenSession {
-                    status: 0,
+                TeeResponse::OpenSession {
                     session_id,
+                    result: 0,
                 }
             }
             Err(e) => {
                 println!("Failed to open session {}: {:?}", session_id, e);
-                CAResponse::OpenSession {
-                    status: e.raw_code(),
-                    session_id: 0,
+                TeeResponse::OpenSession {
+                    session_id,
+                    result: e.raw_code(),
                 }
             }
         };
@@ -178,8 +176,8 @@ impl<T: TrustedApplication> TAManager<T> {
             }
             None => {
                 println!("Session {} not found", session_id);
-                CAResponse::CloseSession {
-                    status: ErrorKind::ItemNotFound as u32,
+                TeeResponse::CloseSession {
+                    result: ErrorKind::ItemNotFound as u32,
                 }
             }
         };
@@ -211,8 +209,9 @@ impl<T: TrustedApplication> TAManager<T> {
             }
             None => {
                 println!("Session {} not found", session_id);
-                CAResponse::InvokeCommand {
-                    status: ErrorKind::ItemNotFound as u32,
+                TeeResponse::InvokeCommand {
+                    params,
+                    result: ErrorKind::ItemNotFound as u32,
                 }
             }
         };
@@ -233,10 +232,10 @@ enum SessionMessage {
     Invoke {
         cmd_id: u32,
         params: Parameters,
-        resp_tx: Sender<CAResponse>,
+        resp_tx: Sender<TeeResponse>,
     },
     Close {
-        resp_tx: Sender<CAResponse>,
+        resp_tx: Sender<TeeResponse>,
     },
 }
 
@@ -254,18 +253,19 @@ fn session_thread<T: TrustedApplication>(
                 resp_tx,
             } => {
                 let resp = match ta.invoke_command(cmd_id, &mut params, &mut ctx) {
-                    Ok(_) => CAResponse::InvokeCommand { status: 0 },
-                    Err(e) => CAResponse::InvokeCommand {
-                        status: e.raw_code(),
+                    Ok(_) => TeeResponse::InvokeCommand { params, result: 0 },
+                    Err(e) => TeeResponse::InvokeCommand {
+                        params,
+                        result: e.raw_code(),
                     },
                 };
                 let _ = resp_tx.send(resp);
             }
             SessionMessage::Close { resp_tx } => {
                 let resp = match ta.close_session(&mut ctx) {
-                    Ok(_) => CAResponse::CloseSession { status: 0 },
-                    Err(e) => CAResponse::CloseSession {
-                        status: e.raw_code(),
+                    Ok(_) => TeeResponse::CloseSession { result: 0 },
+                    Err(e) => TeeResponse::CloseSession {
+                        result: e.raw_code(),
                     },
                 };
                 let _ = resp_tx.send(resp);
