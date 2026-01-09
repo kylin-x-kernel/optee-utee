@@ -5,7 +5,7 @@ pub enum TARequest {
     Register { uuid: String },
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode)]
 pub enum TeeRequest {
     OpenSession {
         uuid: String,
@@ -25,7 +25,7 @@ pub enum TeeRequest {
     },
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode)]
 pub enum TeeResponse {
     OpenSession { session_id: u32, result: u32 },
     CloseSession { result: u32 },
@@ -33,52 +33,30 @@ pub enum TeeResponse {
     RequestCancellation { result: u32 },
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Default)]
 pub struct Parameters(pub Parameter, pub Parameter, pub Parameter, pub Parameter);
 
-impl Parameters {
-    pub fn default() -> Self {
-        Parameters(
-            Parameter::default(),
-            Parameter::default(),
-            Parameter::default(),
-            Parameter::default(),
-        )
-    }
-}
-
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Default)]
 pub struct Parameter {
-    pub raw: TEEParam,
+    pub param: TeeParam,
     pub param_type: ParamType,
 }
 
-impl Parameter {
-    pub fn default() -> Self {
-        Parameter {
-            raw: TEEParam {
-                data: Vec::new(),
-                value: Value { a: 0, b: 0 },
-            },
-            param_type: ParamType::None,
-        }
-    }
-}
-
-#[derive(Encode, Decode, Debug)]
-pub struct TEEParam {
+#[derive(Encode, Decode, Default)]
+pub struct TeeParam {
     pub data: Vec<u8>,
-    pub value: Value,
+    pub values: Value,
 }
 
-#[derive(Encode, Decode, Clone, Copy, Debug)]
+#[derive(Encode, Decode, Clone, Copy, Default)]
 pub struct Value {
     pub a: u32,
     pub b: u32,
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ParamType {
+    #[default]
     None = 0,
     ValueInput = 1,
     ValueOutput = 2,

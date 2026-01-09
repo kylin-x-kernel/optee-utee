@@ -156,7 +156,10 @@ impl<T: TrustedApplication> TAManager<T> {
         };
 
         let resp_data = bincode::encode_to_vec(resp, config::standard())?;
-        stream.write_all(&resp_data)?;
+        let mut message = Vec::with_capacity(4 + resp_data.len());
+        message.extend_from_slice(&(resp_data.len() as u32).to_ne_bytes());
+        message.extend_from_slice(&resp_data);
+        stream.write_all(&message)?;
 
         Ok(())
     }
@@ -183,7 +186,10 @@ impl<T: TrustedApplication> TAManager<T> {
         };
 
         let resp_data = bincode::encode_to_vec(resp, config::standard())?;
-        stream.write_all(&resp_data)?;
+        let mut message = Vec::with_capacity(4 + resp_data.len());
+        message.extend_from_slice(&(resp_data.len() as u32).to_ne_bytes());
+        message.extend_from_slice(&resp_data);
+        stream.write_all(&message)?;
 
         Ok(())
     }
@@ -217,7 +223,10 @@ impl<T: TrustedApplication> TAManager<T> {
         };
 
         let resp_data = bincode::encode_to_vec(resp, config::standard())?;
-        stream.write_all(&resp_data)?;
+        let mut message = Vec::with_capacity(4 + resp_data.len());
+        message.extend_from_slice(&(resp_data.len() as u32).to_ne_bytes());
+        message.extend_from_slice(&resp_data);
+        stream.write_all(&message)?;
 
         Ok(())
     }
